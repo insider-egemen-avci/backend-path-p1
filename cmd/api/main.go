@@ -8,12 +8,48 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"insider-egemen-avci/backend-path-p1/internal/config"
 	"insider-egemen-avci/backend-path-p1/internal/logging"
+	"insider-egemen-avci/backend-path-p1/internal/models"
+	"insider-egemen-avci/backend-path-p1/internal/processing"
 )
+
+func ProcessTransaction(batch []models.Transaction) {
+	slog.Info("Processing transaction batch", "size", len(batch))
+
+	startTime := time.Now()
+	numberOfJobs := len(batch)
+	numberOfWorkers := 10
+
+	pool := processing.NewPool(numberOfWorkers, numberOfJobs)
+	pool.Start()
+
+	var wg sync.WaitGroup
+	wg.Add(numberOfJobs)
+
+	go func() {
+		for result := range pool.Results() {
+			slog.Info("Transaction processed", "transaction_id", result.ID)
+			wg.Done()
+		}
+	}()
+
+	for _, transaction := range batch {
+		pool.AddJob(transaction)
+	}
+
+	pool.CloseJobs()
+
+	slog.Info("Waiting for all transactions to be processed")
+	wg.Wait()
+
+	elapsedTime := time.Since(startTime)
+	slog.Info("Transaction batch processed in", "time", elapsedTime)
+}
 
 func main() {
 	fmt.Println("Hello, World!")
