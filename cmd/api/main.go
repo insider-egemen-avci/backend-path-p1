@@ -8,124 +8,99 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/unrolled/secure"
+
 	"insider-egemen-avci/backend-path-p1/internal/config"
 	"insider-egemen-avci/backend-path-p1/internal/logging"
-	"insider-egemen-avci/backend-path-p1/internal/models"
-	"insider-egemen-avci/backend-path-p1/internal/processing"
 )
 
-func ProcessTransaction(batch []models.Transaction) {
-	slog.Info("Processing transaction batch", "size", len(batch))
-
-	startTime := time.Now()
-	numberOfJobs := len(batch)
-	numberOfWorkers := 10
-
-	pool := processing.NewPool(numberOfWorkers, numberOfJobs)
-	pool.Start()
-
-	var wg sync.WaitGroup
-	wg.Add(numberOfJobs)
-
-	go func() {
-		for result := range pool.Results() {
-			slog.Info("Transaction processed", "transaction_id", result.ID)
-			wg.Done()
-		}
-	}()
-
-	for _, transaction := range batch {
-		pool.AddJob(transaction)
-	}
-
-	pool.CloseJobs()
-
-	slog.Info("Waiting for all transactions to be processed")
-	wg.Wait()
-
-	elapsedTime := time.Since(startTime)
-	slog.Info("Transaction batch processed in", "time", elapsedTime)
-}
-
 func main() {
-	fmt.Println("Hello, World!")
-
-	config, err := config.LoadConfig()
+	cfg, err := config.LoadConfig()
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
 
-	logging.Init(config.LogLevel)
+	logging.Init(cfg.LogLevel)
 
-	slog.Info("Server is starting...",
-		"port", config.Port,
-		"logLevel", config.LogLevel,
-		"shutdownTimeout", config.ShutdownTimeout,
-	)
+	slog.Info("Server starting up...", "port", cfg.Port)
 
-	if config.DSN == "" {
-		slog.Warn("DSN is not set")
-	}
+	r := chi.NewRouter()
 
-	slog.Info("Application is running on", "port", config.Port)
+	secureMiddleware := secure.New(secure.Options{
+		FrameDeny:             true, // Prevents clickjacking
+		ContentTypeNosniff:    true, // Prevents MIME type sniffing
+		BrowserXssFilter:      true, // Adds XSS protection
+		ContentSecurityPolicy: "default-src 'self'",
+	})
+	r.Use(secureMiddleware.Handler)
 
-	mux := http.NewServeMux()
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"https://*", "http://*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(60 * time.Second))
+
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Hello, World!"))
-
-		slog.Info("Request received", "method", r.Method, "path", r.URL.Path)
-
-		time.Sleep(3 * time.Second)
-
-		slog.Info("Request processed", "method", r.Method, "path", r.URL.Path)
+		w.Write([]byte(`{"status": "ok"}`))
 	})
 
+	/* api handler
+		r.Route("/api/v1", func(r chi.Router) {
+			r.Post("/auth/register", apiHandler.Register)
+	    	r.Post("/auth/login", apiHandler.Login)
+			r.Post("/auth/refresh", apiHandler.Refresh)
+			and other routes...
+		})
+	*/
+
 	server := &http.Server{
-		Addr:         fmt.Sprintf(":%d", config.Port),
-		Handler:      mux,
+		Addr:         fmt.Sprintf(":%d", cfg.Port),
+		Handler:      r,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  time.Minute,
 	}
 
 	serverErrors := make(chan error, 1)
-
 	go func() {
-		slog.Info("Starting server", "port", config.Port)
+		slog.Info("Server is ready to handle requests", "address", server.Addr)
 		serverErrors <- server.ListenAndServe()
 	}()
 
 	quit := make(chan os.Signal, 1)
-
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case err := <-serverErrors:
-		slog.Error("Server error", "error", err)
-
-		if errors.Is(err, http.ErrServerClosed) {
-			slog.Info("Server closed")
-		} else {
+		if !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("Server error", "error", err)
+			os.Exit(1)
 		}
 	case sig := <-quit:
-		slog.Info("Server is shutting down...", "signal", sig.String())
-
-		ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+		slog.Info("Shutdown signal received", "signal", sig.String())
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
-
-		err := server.Shutdown(ctx)
-		if err != nil {
-			slog.Error("Server shutdown error", "error", err)
+		if err := server.Shutdown(ctx); err != nil {
+			slog.Error("Server shutdown failed", "error", err)
 		}
 	}
-
 	slog.Info("Server shutdown complete")
 }

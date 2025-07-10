@@ -168,3 +168,11 @@ func (service *transactionService) Rollback(ctx context.Context, transactionID i
 
 	return reversedTransaction, nil
 }
+
+func (s *transactionService) GetTransactionByID(ctx context.Context, txID int64) (*models.Transaction, error) {
+	return s.transactionRepository.GetTransactionByID(ctx, txID)
+}
+
+func (s *transactionService) GetUserHistory(ctx context.Context, userID int64) ([]*models.Transaction, error) {
+	return s.transactionRepository.GetHistoryByUserID(ctx, userID)
+}

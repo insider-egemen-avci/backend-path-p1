@@ -7,59 +7,52 @@ import (
 	"time"
 )
 
-type Config struct {
+type AppConfig struct {
 	Port            int
 	DSN             string
 	LogLevel        string
 	ShutdownTimeout time.Duration
+	JWTSecret       string
 }
 
-func LoadConfig() (*Config, error) {
-	config := Config{
+func LoadConfig() (*AppConfig, error) {
+	cfg := AppConfig{
 		Port:            8080,
-		DSN:             "host=localhost user=postgres password=postgres dbname=postgres port=5432 sslmode=disable",
 		LogLevel:        "info",
 		ShutdownTimeout: 10 * time.Second,
 	}
 
-	var err error
-
-	portStr := os.Getenv("PORT")
-
-	if portStr != "" {
-		port, convErr := strconv.Atoi(portStr)
-		if convErr != nil {
-			return nil, fmt.Errorf("failed to convert PORT %s to int: %w", portStr, convErr)
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid PORT value: %w", err)
 		}
-		config.Port = port
+		cfg.Port = port
 	}
 
-	dsn := os.Getenv("DSN")
-
-	if dsn != "" {
-		config.DSN = dsn
+	if dsn := os.Getenv("DSN"); dsn != "" {
+		cfg.DSN = dsn
 	} else {
-		return nil, fmt.Errorf("DSN is not set")
+		return nil, fmt.Errorf("environment variable DSN must be set")
 	}
 
-	level := os.Getenv("LOG_LEVEL")
-
-	if level != "" {
-		config.LogLevel = level
-	} else {
-		return nil, fmt.Errorf("LOG_LEVEL is not set")
+	if level := os.Getenv("LOG_LEVEL"); level != "" {
+		cfg.LogLevel = level
 	}
 
-	shutdownTimeoutStr := os.Getenv("SHUTDOWN_TIMEOUT")
-
-	if shutdownTimeoutStr != "" {
-		shutdownTimeout, convErr := time.ParseDuration(shutdownTimeoutStr)
-		if convErr != nil {
-			return nil, fmt.Errorf("failed to convert SHUTDOWN_TIMEOUT %s to time.Duration: %w", shutdownTimeoutStr, convErr)
+	if timeoutStr := os.Getenv("SHUTDOWN_TIMEOUT"); timeoutStr != "" {
+		shutdownTimeout, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SHUTDOWN_TIMEOUT value: %w", err)
 		}
-
-		config.ShutdownTimeout = shutdownTimeout
+		cfg.ShutdownTimeout = shutdownTimeout
 	}
 
-	return &config, err
+	if secret := os.Getenv("JWT_SECRET"); secret != "" {
+		cfg.JWTSecret = secret
+	} else {
+		return nil, fmt.Errorf("environment variable JWT_SECRET must be set")
+	}
+
+	return &cfg, nil
 }

@@ -18,3 +18,7 @@ func NewBalanceService(balanceRepo models.BalanceRepository) models.BalanceServi
 func (s *balanceService) GetBalance(ctx context.Context, userID int64) (*models.Balance, error) {
 	return s.balanceRepo.GetBalance(ctx, userID)
 }
+
+func (s *balanceService) GetBalanceHistory(ctx context.Context, userID int64) ([]*models.Balance, error) {
+	return s.balanceRepo.GetBalanceHistory(ctx, userID)
+}

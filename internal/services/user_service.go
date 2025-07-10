@@ -79,3 +79,28 @@ func (service *userService) Login(ctx context.Context, email, password string) (
 
 	return user, nil
 }
+
+func (service *userService) GetByID(ctx context.Context, id int64) (*models.User, error) {
+	return service.userRepository.GetUserByID(ctx, id)
+}
+
+func (s *userService) SaveRefreshToken(ctx context.Context, userID int64, token string) error {
+	return s.userRepository.SaveRefreshToken(ctx, userID, token)
+}
+
+func (s *userService) GetUserByRefreshToken(ctx context.Context, token string) (*models.User, error) {
+	return s.userRepository.GetUserByRefreshToken(ctx, token)
+}
+
+func (s *userService) GetAllUsers(ctx context.Context) ([]*models.User, error) {
+	return s.userRepository.GetAll(ctx)
+}
+
+func (s *userService) UpdateUser(ctx context.Context, user *models.User) error {
+	user.UpdatedAt = time.Now()
+	return s.userRepository.Update(ctx, user)
+}
+
+func (s *userService) DeleteUser(ctx context.Context, id int64) error {
+	return s.userRepository.Delete(ctx, id)
+}
